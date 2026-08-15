@@ -4,3 +4,5 @@ aiortc
 websockets
 python-dotenv
 deepgram-sdk
+google_genai
+rich

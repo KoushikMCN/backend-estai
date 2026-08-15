@@ -9,6 +9,12 @@ from deepgram.core.events import EventType
 from dotenv import load_dotenv
 
 from services.deepgram import DeepgramSession
+from services.gemini import GeminiService
+
+from rich.console import Console
+from rich.markdown import Markdown
+
+gemini = GeminiService()
 
 load_dotenv()
 
@@ -90,11 +96,15 @@ async def receive_transcripts(connection):
     def on_message(message):
         if message.type != "Results":
             return
+        if not message.speech_final:
+            return
 
         transcript = message.channel.alternatives[0].transcript
 
         if transcript:
             print(f"USER: {transcript}")
+            asyncio.create_task(_handle_transcript(transcript))
+
 
     connection.on(EventType.OPEN, on_open)
     connection.on(EventType.CLOSE, on_close)
@@ -102,3 +112,9 @@ async def receive_transcripts(connection):
     connection.on(EventType.MESSAGE, on_message)
 
     await connection.start_listening()
+
+async def _handle_transcript(transcript):
+    response = await gemini.generate(transcript)
+
+    console = Console()
+    console.print(Markdown(f"AI: {response}"))
