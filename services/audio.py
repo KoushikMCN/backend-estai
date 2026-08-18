@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 from services.deepgram import DeepgramSession
 from services.gemini import GeminiService
+from services.voice_session import VoiceSession
 
 from rich.console import Console
 from rich.markdown import Markdown
@@ -24,6 +25,7 @@ deepgram_client = AsyncDeepgramClient(
 
 async def process_audio(track: MediaStreamTrack):
     session = DeepgramSession(deepgram_client)
+    voice_session = VoiceSession(gemini.client)
 
     connection = await session.connect()
 
@@ -32,7 +34,7 @@ async def process_audio(track: MediaStreamTrack):
     )
 
     receive_task = asyncio.create_task(
-        receive_transcripts(connection)
+        receive_transcripts(connection, voice_session)
     )
 
     try:
@@ -82,7 +84,7 @@ async def send_audio(track: MediaStreamTrack, connection):
         print("Audio track ended")
 
 
-async def receive_transcripts(connection):
+async def receive_transcripts(connection, voice_session: VoiceSession):
 
     def on_open(event):
         print("Deepgram connection opened")
@@ -96,14 +98,29 @@ async def receive_transcripts(connection):
     def on_message(message):
         if message.type != "Results":
             return
-        if not message.speech_final:
-            return
 
         transcript = message.channel.alternatives[0].transcript
 
-        if transcript:
-            print(f"USER: {transcript}")
-            asyncio.create_task(_handle_transcript(transcript))
+        if not transcript:
+            return
+
+        if message.is_final:
+            voice_session.add_transcript(transcript)
+
+        if message.speech_final:
+            full_transcript = voice_session.get_transcript()
+
+            if full_transcript:
+                print(f"USER: {full_transcript}")
+
+                asyncio.create_task(
+                    handle_user_message(
+                        full_transcript,
+                        voice_session,
+                    )
+                )
+
+            voice_session.clear_transcript()
 
 
     connection.on(EventType.OPEN, on_open)
@@ -113,8 +130,8 @@ async def receive_transcripts(connection):
 
     await connection.start_listening()
 
-async def _handle_transcript(transcript):
-    response = await gemini.generate(transcript)
 
-    console = Console()
-    console.print(Markdown(f"AI: {response}"))
+async def handle_user_message(message: str, voice_session: VoiceSession):
+    response = await voice_session.generate_response(message)
+
+    print(f"AI: {response}")
